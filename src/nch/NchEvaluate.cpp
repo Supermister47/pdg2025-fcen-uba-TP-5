@@ -253,6 +253,7 @@ void NchEvaluate::_runAdaptive() {
     int iVgrid;
     float x,y,z,f_xyz;
     float p0i,p1i,p2i,n0i,n1i,n2i,rho_i,d0,d1,d2,f_i;
+    float a, b, c;
     for(iVgrid=0;iVgrid<nGridVertices;iVgrid++) {
       x = coordGrid[3*iVgrid  ];
       y = coordGrid[3*iVgrid+1];
@@ -261,9 +262,29 @@ void NchEvaluate::_runAdaptive() {
       f_xyz = -std::numeric_limits<float>::max();
       for(int i=0;i<nPoints;i++) {
 
-        // TODO
-        //
-        // - update f_xyz
+          p0i = _coord[3*i  ];
+          p1i = _coord[3*i+1];
+          p2i = _coord[3*i+2];
+
+          n0i = _normal[3*i  ];
+          n1i = _normal[3*i+1];
+          n2i = _normal[3*i+2];
+
+          d0 = x - p0i;
+          d1 = y - p1i;
+          d2 = z - p2i;
+          // Compute n_i^t (x - p_i)
+          a = n0i*d0 + n1i*d1 + n2i*d2;
+
+          // Compute ||x - p_i||^2
+          b = d0*d0 + d1*d1 + d2*d2;
+
+          // Compute a - rho_i b
+          rho_i = _rho[i];
+          c = a - rho_i * b;
+          if (c > f_xyz) {
+              f_xyz = c;
+          }
 
       }
       _fGrid[iVgrid] = f_xyz;
@@ -373,6 +394,7 @@ void NchEvaluate::_runRegular() {
     int iGridVertex,ix,iy,iz,i;
     float x,y,z;
     float p0i,p1i,p2i,n0i,n1i,n2i,rho_i,d0,d1,d2,f_i,f_xyz;
+    float a, b, c;
     for(iGridVertex=iz=0;iz<=N;iz++) {
       z = (((float)(N-iz  ))*min.z+((float)(iz  ))*max.z)/((float)N);
       for(iy=0;iy<=N;iy++) {
@@ -383,9 +405,29 @@ void NchEvaluate::_runRegular() {
           f_xyz = -std::numeric_limits<float>::max();
           for(i=0;i<nPoints;i++) {
 
-            // TODO
-            //
-            // update f_xyz
+            p0i = _coord[3*i  ];
+            p1i = _coord[3*i+1];
+            p2i = _coord[3*i+2];
+
+            n0i = _normal[3*i  ];
+            n1i = _normal[3*i+1];
+            n2i = _normal[3*i+2];
+            
+            d0 = x - p0i;
+            d1 = y - p1i;
+            d2 = z - p2i;
+            // Compute n_i^t (x - p_i)
+            a = n0i*d0 + n1i*d1 + n2i*d2;
+
+            // Compute ||x - p_i||^2
+            b = d0*d0 + d1*d1 + d2*d2;
+
+            // Compute a - rho_i b
+            rho_i = _rho[i];
+            c = a - rho_i * b;
+            if (c > f_xyz) {
+              f_xyz = c;
+            }
 
           }
           _fGrid[iGridVertex] = f_xyz;

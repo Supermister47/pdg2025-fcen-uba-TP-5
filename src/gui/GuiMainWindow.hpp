@@ -45,6 +45,7 @@
 #include "io/AppSaver.hpp"
 #include "GuiGLWidget.hpp"
 #include "GuiPanel.hpp"
+#include <locale.h>
 
 typedef std::function<GuiPanel*(QWidget *parent)> GuiPanelFactory;
 typedef QMap<QString,GuiPanelFactory> GuiPanelFactoryMap;

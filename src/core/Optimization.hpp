@@ -37,7 +37,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
 // USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 // DAMAGE.
-
+
 #ifndef _OPTIMIZATION_HPP_
 #define _OPTIMIZATION_HPP_
 
@@ -46,154 +46,154 @@
 // #include "PolygonMesh.hpp"
 
 class Optimization : public QObject {
-Q_OBJECT
-  
+    Q_OBJECT
+
 public:
 
-  Optimization();
+    Optimization();
 
-  void clear();
+    void clear();
 
-  IndexedFaceSet* getInput();
-  IndexedFaceSet* getOptimized();
+    IndexedFaceSet* getInput();
+    IndexedFaceSet* getOptimized();
 
-  void  setInput(IndexedFaceSet* ifsInput);
-  void  setOptimized(IndexedFaceSet* ifsOptimized, const bool reset=false);
-  void  saveOptimized();
+    void  setInput(IndexedFaceSet* ifsInput);
+    void  setOptimized(IndexedFaceSet* ifsOptimized, const bool reset=false);
+    void  saveOptimized();
 
-  int   getSteps();
-  void  setSteps(const int value);
+    int   getSteps();
+    void  setSteps(const int value);
 
-  float getLambda();
-  void  setLambda(const float value);
-  float getMu();
-  void  setMu(const float value);
-  float getKappa();
-  void  setKappa(const float value);
+    float getLambda();
+    void  setLambda(const float value);
+    float getMu();
+    void  setMu(const float value);
+    float getKappa();
+    void  setKappa(const float value);
 
-  void  setSelectedVertexIndex(const int value);
-  void  setSelectedEdgeIndex(const int value);
-  void  setSelectedFaceIndex(const int value);
+    void  setSelectedVertexIndex(const int value);
+    void  setSelectedEdgeIndex(const int value);
+    void  setSelectedFaceIndex(const int value);
 
-  // Jacobi iteration for energy function
-  //
-  // E(x) = \sum_{0<=iE<nE} {1} \| x_{iV0}-x_{iV1}^0\|^2
-  //
-  void  laplacianSmoothingVertexCoordinatesRun();
+    // Jacobi iteration for energy function
+    //
+    // E(x) = \sum_{0<=iE<nE} {1} \| x_{iV0}-x_{iV1}^0\|^2
+    //
+    void  laplacianSmoothingVertexCoordinatesRun();
 
-  // Jacobi iteration for energy function
-  //
-  // E(n) = \sum_{0<=iE<nED} {1} \| n_{iF0}-n_{iF1}^0\|^2
-  //
-  void  laplacianSmoothingFaceNormalsRun
-  (const bool normalize=true);
+    // Jacobi iteration for energy function
+    //
+    // E(n) = \sum_{0<=iE<nED} {1} \| n_{iF0}-n_{iF1}^0\|^2
+    //
+    void  laplacianSmoothingFaceNormalsRun
+        (const bool normalize=true);
 
-  float getJacobiWeightData();
-  void  setJacobiWeightData(const float value);
-  float getJacobiWeightSmoothing();
-  void  setJacobiWeightSmoothing(const float value);
+    float getJacobiWeightData();
+    void  setJacobiWeightData(const float value);
+    float getJacobiWeightSmoothing();
+    void  setJacobiWeightSmoothing(const float value);
 
-  // Jacobi iteration for energy function
-  //
-  // E(x) = (1-sigma)*\sum_{0<=iV<nV} \| x_{iV}-x_{iV}^0\|^2 +
-  //        (  sigma)*\sum_{0<=iE<nE} \| x_{iV0}-x_{iV1}^0\|^2
-  //
-  void  jacobiRun();
+    // Jacobi iteration for energy function
+    //
+    // E(x) = (1-sigma)*\sum_{0<=iV<nV} \| x_{iV}-x_{iV}^0\|^2 +
+    //        (  sigma)*\sum_{0<=iE<nE} \| x_{iV0}-x_{iV1}^0\|^2
+    //
+    void  jacobiRun();
 
-  vector<float>& getEdgeLengths();
+    vector<float>& getEdgeLengths();
 
-  float getMinEdgeLength();
-  float getMaxEdgeLength();
-  float getTargetEdgeLength();
+    float getMinEdgeLength();
+    float getMaxEdgeLength();
+    float getTargetEdgeLength();
 
-  void  setMinEdgeLength(const float value);
-  void  setMaxEdgeLength(const float value);
-  void  setTargetEdgeLength(const float value);
+    void  setMinEdgeLength(const float value);
+    void  setMaxEdgeLength(const float value);
+    void  setTargetEdgeLength(const float value);
 
-  void clusterVerticesApply
-  (const Vec3f& min, const Vec3f& max, const int resolution);
-  void clusterVerticesApply();
-  int  getQuantizationResolution();
-  void setQuantizationResolution
-  (const int resolution);
-  void setQuantizationBox
-  (const Vec3f& min, const Vec3f& max);
-  int getNumberOfClusters();
+    void clusterVerticesApply
+        (const Vec3f& min, const Vec3f& max, const int resolution);
+    void clusterVerticesApply();
+    int  getQuantizationResolution();
+    void setQuantizationResolution
+        (const int resolution);
+    void setQuantizationBox
+        (const Vec3f& min, const Vec3f& max);
+    int getNumberOfClusters();
 
-  enum EdgeCollapseIndependentSet {
-    VERTICES_2, VERTICES_4, VERTICES_8
-  };
+    enum EdgeCollapseIndependentSet {
+        VERTICES_2, VERTICES_4, VERTICES_8
+    };
 
-  void  collapseEdgesShow
-  (const EdgeCollapseIndependentSet indepSet);
-  void  collapseEdgesApply
-  (const EdgeCollapseIndependentSet indepSet);
+    void  collapseEdgesShow
+        (const EdgeCollapseIndependentSet indepSet);
+    void  collapseEdgesApply
+        (const EdgeCollapseIndependentSet indepSet);
 
-  enum SplitEdgesMode {
-    LONG, ALL, SELECTED
-  };
+    enum SplitEdgesMode {
+        LONG, ALL, SELECTED
+    };
 
-  void  adaptiveSubdivisionShow
-  (const SplitEdgesMode mode);
-  void  adaptiveSubdivisionApply
-  (const SplitEdgesMode mode, const bool colorFaces=false);
+    void  adaptiveSubdivisionShow
+        (const SplitEdgesMode mode);
+    void  adaptiveSubdivisionApply
+        (const SplitEdgesMode mode, const bool colorFaces=false);
 
-  void  equalizeValencesShow();
-  void  equalizeValencesApply();
+    void  equalizeValencesShow();
+    void  equalizeValencesApply();
 
 signals:
 
-  // void refreshSignal(bool waiting);
+    // void refreshSignal(bool waiting);
 
-  void progressReset();
-  void progressSetRange(int min, int max);
-  void progressSetValue(int value);
-  void progressSetError(QString errorStr);
+    void progressReset();
+    void progressSetRange(int min, int max);
+    void progressSetValue(int value);
+    void progressSetError(QString errorStr);
 
-  // public slots:
-  // void setStop(bool value);
-
-private:
-
-  void  _collapseEdgesSelect
-  (const EdgeCollapseIndependentSet indepSet,
-   vector<int>&                     edgeSelection,
-   bool                             colorIncidentFaces);
-
-  void  _adaptiveSubdivisionSelect
-  (vector<int>& vertexSelection,
-   vector<int>& edgeSelection,
-   const SplitEdgesMode mode,
-   bool colorIncidentFaces);
-
-  void  _equalizeValencesSelect
-  (vector<int>& edgeSelection, bool colorIncidentFaces);
+    // public slots:
+    // void setStop(bool value);
 
 private:
 
-  // bool         _stop;
+    void  _collapseEdgesSelect
+        (const EdgeCollapseIndependentSet indepSet,
+         vector<int>&                     edgeSelection,
+         bool                             colorIncidentFaces);
 
-  IndexedFaceSet* _ifsInput;
-  IndexedFaceSet* _ifsOptimized;
-  int             _steps;
-  float           _lambda;
-  float           _mu;
-  float           _jacobiWeightSmoothing;
+    void  _adaptiveSubdivisionSelect
+        (vector<int>& vertexSelection,
+         vector<int>& edgeSelection,
+         const SplitEdgesMode mode,
+         bool colorIncidentFaces);
 
-  vector<float>   _edgeLengths;
+    void  _equalizeValencesSelect
+        (vector<int>& edgeSelection, bool colorIncidentFaces);
 
-  float           _minEdgeLength;
-  float           _maxEdgeLength;
-  float           _targetEdgeLength;
+private:
 
-  Vec3f           _clusterMin;
-  Vec3f           _clusterMax;
-  int             _clusterResolution;
-  int             _nClusters;
+    // bool         _stop;
 
-  int             _vSelIndex;
-  int             _eSelIndex;
-  int             _fSelIndex;
+    IndexedFaceSet* _ifsInput;
+    IndexedFaceSet* _ifsOptimized;
+    int             _steps;
+    float           _lambda;
+    float           _mu;
+    float           _jacobiWeightSmoothing;
+
+    vector<float>   _edgeLengths;
+
+    float           _minEdgeLength;
+    float           _maxEdgeLength;
+    float           _targetEdgeLength;
+
+    Vec3f           _clusterMin;
+    Vec3f           _clusterMax;
+    int             _clusterResolution;
+    int             _nClusters;
+
+    int             _vSelIndex;
+    int             _eSelIndex;
+    int             _fSelIndex;
 };
 
 #endif /* _OPTIMIZATION_HPP_ */

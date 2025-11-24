@@ -39,6 +39,7 @@
 
 #include "Loader.hpp"
 #include "TokenizerFile.hpp"
+#include <stdint.h>
 
 #include "wrl/Node.hpp"
 #include "wrl/IndexedFaceSet.hpp"

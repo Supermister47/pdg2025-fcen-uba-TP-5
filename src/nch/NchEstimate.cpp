@@ -131,19 +131,44 @@ void NchEstimate::run() {
     // Hint: use the pseudo-code from the lecture slides
     
     int i,j;
-    float p0i,p1i,p2i,p0j,p1j,p2j,n0i,n1i,n2i,d0,d1,d2,a,b,rho_i;
+    float pix,piy,piz,pjx,pjy,pjz,nix,niy,niz,d0,d1,d2,a,b,rho_i;
 
     for(i=0;i<nPoints;i++) {
 
       // get the (x,y,z) coordinates to the i-th point from the _coord array
+      pix = _coord[3*i+0];
+      piy = _coord[3*i+1];
+      piz = _coord[3*i+2];
+
+      // Get the normal components
+      nix = _normal[3*i+0];
+      niy = _normal[3*i+1];
+      niz = _normal[3*i+2];
 
       rho_i  = 0.0f;
       for(j=0;j<nPoints;j++) {
         if(j==i) continue;
+        // get the (x,y,z) coordinates to the j-th point from the _coord array
+        pjx = _coord[3*j+0];
+        pjy = _coord[3*j+1];
+        pjz = _coord[3*j+2];
 
-        // TODO
-        // - update the _rho[i] parameter 
+        // Compute a = n_i^t = (pj - pi)
+        a =  nix*(pjx - pix) +
+             niy*(pjy - piy) +
+             niz*(pjz - piz);
 
+        // Compute b = ||pj - pi||^2
+        d0 = pjx - pix;
+        d1 = pjy - piy;
+        d2 = pjz - piz;
+        b = d0*d0 + d1*d1 + d2*d2;
+
+        
+        if ((a - rho_i * b) > 0.0f) {
+            rho_i = a / b;
+        }
+        
       }
       _rho[i] = rho_i;
 

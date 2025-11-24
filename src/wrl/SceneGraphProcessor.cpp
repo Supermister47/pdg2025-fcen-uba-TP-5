@@ -1182,12 +1182,116 @@ void SceneGraphProcessor::fitSinglePlane
 (const Vec3f& center, const Vec3f& size,
   const float scale, const bool cube, Vec4f& f) {
 
+  // make sure that the bounding box is not empty
+  if (size.x <= 0.0f || size.y <= 0.0f || size.z <= 0.0f || scale <= 0.0f) {
+    // throw exception ?
+    return;
+  }
+
+  // find the input point set in the scene graph
+  IndexedFaceSet* points = _getNamedShapeIFS("POINTS", false);
+  if (points == (IndexedFaceSet*)0) return;
+  if (points->getNormalBinding() != IndexedFaceSet::PB_PER_VERTEX) return;
+  const vector<float>& coordPoints = points->getCoord();
+  const vector<float>& normalPoints = points->getNormal();
+  // int nPoints = (int)(coordPoints.size()/3);
+  // cout << "  nPoints = " << nPoints << endl;
+
+  // compute the coordinates of the bounding box corners
+  float dx = size.x / 2.0f, dy = size.y / 2.0f, dz = size.z / 2.0f;
+  float dMax = dx; if (dy > dMax) dMax = dy; if (dz > dMax) dMax = dz;
+  if (cube) { dx = dy = dz = dMax; }
+  if (scale > 0.0f) { dx *= scale; dy *= scale; dz *= scale; }
+  float x0 = center.x - dx; float y0 = center.y - dy; float z0 = center.z - dz;
+  float x1 = center.x + dx; float y1 = center.y + dy; float z1 = center.z + dz;
+  Vec3f min(x0, y0, z0);
+  Vec3f max(x1, y1, z1);
+  float x, y, z;
+  Vec3f v[8]; // bbox corner coordinates
+  for (int i = 0;i < 8;i++) {
+    v[i].z = (((i >> 0) & 0x1) == 0) ? z0 : z1;
+    v[i].y = (((i >> 1) & 0x1) == 0) ? y0 : y1;
+    v[i].x = (((i >> 2) & 0x1) == 0) ? x0 : x1;
+  }
+
+  // fit a plane to the points contained in the bounding box
+  // eigenFit(coordPoints,normalPoints,min,max,f);
+  meanFit(coordPoints, normalPoints, min, max, f);
+
+  // find or create the output surface in the scene graph 
   IndexedFaceSet* plane = _getNamedShapeIFS("PLANE", true);
   plane->clear();
+  vector<float>& coordIfs = plane->getCoord();
 
-  _fitPlane(center, size, scale, cube, f,
-    _getNamedShapeIFS("POINTS", false)->getCoord(),
-    _getNamedShapeIFS("POINTS", false)->getNormal());
+  // evaluate the linear function at bounding box corners
+  float F[8]; // function values at bbox corners
+  bool  b[8]; // function is positive or negative ?
+  for (int i = 0;i < 8;i++) {
+    x = v[i].x; y = v[i].y; z = v[i].z;
+    b[i] = (F[i] = x * f.x + y * f.y + z * f.z + f.w) < 0.0f;
+  }
+
+  // cout << "//                6 ----- 7 = (x1,y1,z1)" << endl;
+  // cout << "//               /|      /|             " << endl;
+  // cout << "//              4 ----- 5 |             " << endl;
+  // cout << "//              | |     | |             " << endl;
+  // cout << "//              | 2 ----| 3             " << endl;
+  // cout << "//              |/      |/              " << endl;
+  // cout << "// (x0,y0,z0) = 0 ----- 1               " << endl;
+
+  //////////////////////////////////////////////////////////////////////
+  //
+  //    vertices      //    edges                 //    faces
+  //      6-----7     //        [6]---11---[7]    //        1
+  //     /|    /|     //        /|         /|     //        | 3
+  //    4-----5 |     //       6 2        7 3     //        |/
+  //    | 2---|-3     //      /  |       /  |     //    4---+---5
+  //    |/    |/      //    [4]---10---[5]  |     //       /|
+  //    0-----1       //     |   |      |   |     //      2 |
+  //                  //     |  [2]--9--|--[3]    //        0
+  //                  //     0  /       1  /      //
+  //                  //     | 4        | 5       //
+  //                  //     |/         |/        //
+  //                  //    [0]---8----[1]        //
+  //
+
+  const int (*edge)[2] = IsoSurf::getEdgeTable();
+
+  // compute the isovertex coordinates
+  float tj, tk;
+  int   iE[12], iV, i, j, k;
+  for (i = 0;i < 12;i++) {
+    iV = -1;
+    j = edge[i][0];
+    k = edge[i][1];
+    if (b[j] != b[k]) {
+      // create new vertex index
+      iV = (int)((coordIfs.size() / 3));
+      // isovertex coordinates
+      tk = F[j] / (F[j] - F[k]);
+      tj = F[k] / (F[k] - F[j]);
+      x = tj * v[j].x + tk * v[k].x;
+      y = tj * v[j].y + tk * v[k].y;
+      z = tj * v[j].z + tk * v[k].z;
+      coordIfs.push_back(x);
+      coordIfs.push_back(y);
+      coordIfs.push_back(z);
+    }
+    iE[i] = iV;
+  }
+
+  // create isosurface faces
+  vector<int>& coordIndex = plane->getCoordIndex(); // coordIndex.size()==0
+  /* int nFaces = */ IsoSurf::makeCellFaces(b, iE, coordIndex);
+  // cout << "  nFaces = " << nFaces << endl;
+
+  // save plane normal vector as face normal
+  plane->setNormalPerVertex(false);
+  vector<float>& normal = plane->getNormal();
+  // assert(normal.size()==0);
+  normal.push_back(f.x);
+  normal.push_back(f.y);
+  normal.push_back(f.z);
 }
 
 void SceneGraphProcessor::_fitPlane
@@ -1330,17 +1434,25 @@ void SceneGraphProcessor::fitMultiplePlanes
 (const Vec3f& center, const Vec3f& size,
   const int depth, const float scale, const bool cube,
   vector<float>& f) {
+  // make sure that the bounding box is not empty
+  if (size.x <= 0.0f || size.y <= 0.0f || size.z <= 0.0f || scale <= 0.0f) {
+    // throw exception ?
+    return;
+  }
 
-  IndexedFaceSet* plane = _getNamedShapeIFS("PLANE", true);
-  plane->clear();
+  IndexedFaceSet* planes = _getNamedShapeIFS("SURFACE", true);
+  planes->clear();
 
+  // find the input point set in the scene graph
   IndexedFaceSet* points = _getNamedShapeIFS("POINTS", false);
-  vector<float>& coord = points->getCoord();
-  vector<float>& normal = points->getNormal();
+  if (points == (IndexedFaceSet*)0) return;
+  if (points->getNormalBinding() != IndexedFaceSet::PB_PER_VERTEX) return;
+  vector<float>& coordPoints = points->getCoord();
+  const vector<float>& normalPoints = points->getNormal();
+  // int nPoints = (int)(coordPoints.size()/3);
+  // cout << "  nPoints = " << nPoints << endl;
 
-  int N = 1 << depth; // N = 2^depth
-  vector<float> coordPoints;
-  vector<float> normalPoints;
+  // compute the coordinates of the bounding box corners to create the partition
   float dx = size.x / 2.0f, dy = size.y / 2.0f, dz = size.z / 2.0f;
   float dMax = dx; if (dy > dMax) dMax = dy; if (dz > dMax) dMax = dz;
   if (cube) { dx = dy = dz = dMax; }
@@ -1349,83 +1461,149 @@ void SceneGraphProcessor::fitMultiplePlanes
   float x1 = center.x + dx; float y1 = center.y + dy; float z1 = center.z + dz;
   Vec3f min(x0, y0, z0);
   Vec3f max(x1, y1, z1);
-  Vec3f minBordersBox = Vec3f(center.x - dx, center.y - dy, center.z - dz);
-  Vec3f maxBordersBox = Vec3f(center.x + dx, center.y + dy, center.z + dz);
-  Vec3f sizeBox = Vec3f(maxBordersBox.x - minBordersBox.x,
-    maxBordersBox.y - minBordersBox.y,
-    maxBordersBox.z - minBordersBox.z);
-  Vec3f cellSize = Vec3f(sizeBox.x / N, sizeBox.y / N, sizeBox.z / N);
 
-  _createPartition(minBordersBox, maxBordersBox, depth, coord);
+  _createPartition(min, max, depth, coordPoints);
 
+  int N = _nGrid; // N = 2^depth
+
+
+  vector<float>& coordIfs = planes->getCoord();
+  vector<float> coordCell;
+  vector<float> normalCell;
+
+  // Compute all corners values
   for (int ix = 0; ix < N; ix++) {
     for (int iy = 0; iy < N; iy++) {
       for (int iz = 0; iz < N; iz++) {
-            Vec3f minCell, maxCell;
-        minCell.x = ((N-ix )*min.x+(ix )*max.x)/(N);
-        maxCell.x = ((N-ix-1)*min.x+(ix+1)*max.x)/(N);
-        minCell.y = ((N-iy )*min.y+(iy )*max.y)/(N);
-        maxCell.y = ((N-iy-1)*min.y+(iy+1)*max.y)/(N);
-        minCell.z = ((N-iz )*min.z+(iz )*max.z)/(N);
-        maxCell.z = ((N-iz-1)*min.z+(iz+1)*max.z)/(N);
-        // Vec3f minCell = Vec3f(minBordersBox.x + ix * cellSize.x,
-        //   minBordersBox.y + iy * cellSize.y,
-        //   minBordersBox.z + iz * cellSize.z);
-        // Vec3f maxCell = Vec3f(minBordersBox.x + (ix + 1) * cellSize.x,
-        //   minBordersBox.y + (iy + 1) * cellSize.y,
-        //   minBordersBox.z + (iz + 1) * cellSize.z);
+        Vec3f minCell, maxCell;
+        // compute the bounding box of the current cell
+        minCell.x = ((N - ix) * min.x + (ix)*max.x) / (N);
+        maxCell.x = ((N - ix - 1) * min.x + (ix + 1) * max.x) / (N);
+        minCell.y = ((N - iy) * min.y + (iy)*max.y) / (N);
+        maxCell.y = ((N - iy - 1) * min.y + (iy + 1) * max.y) / (N);
+        minCell.z = ((N - iz) * min.z + (iz)*max.z) / (N);
+        maxCell.z = ((N - iz - 1) * min.z + (iz + 1) * max.z) / (N);
 
         int iCell = ix + N * (iy + N * iz);
         int iPoint = _first[iCell];
+
+        // skip empty cells
         if (iPoint == -1)
-            continue;
+          continue;
 
-        coordPoints.clear();
-        normalPoints.clear();
-        for (int iP = iPoint; iP >= 0; iP = _next[iP]) {
-          float x = coord[3 * iP];
-          float y = coord[3 * iP + 1];
-          float z = coord[3 * iP + 2];
-          coordPoints.push_back(x);
-          coordPoints.push_back(y);
-          coordPoints.push_back(z);
+        coordCell.clear();
+        normalCell.clear();
+        // Obtain the points contained in the current cell
+        for (int iP = iPoint; iP != -1; iP = _next[iP]) {
+          float x = coordPoints[3 * iP];
+          float y = coordPoints[3 * iP + 1];
+          float z = coordPoints[3 * iP + 2];
+          coordCell.push_back(x);
+          coordCell.push_back(y);
+          coordCell.push_back(z);
 
-          if (normal.size() > 0) {
-            x = normal[3 * iP];
-            y = normal[3 * iP + 1];
-            z = normal[3 * iP + 2];
+          if (normalPoints.size() > 0) {
+            x = normalPoints[3 * iP];
+            y = normalPoints[3 * iP + 1];
+            z = normalPoints[3 * iP + 2];
 
-            normalPoints.push_back(x);
-            normalPoints.push_back(y);
-            normalPoints.push_back(z);
+            normalCell.push_back(x);
+            normalCell.push_back(y);
+            normalCell.push_back(z);
           }
         }
+
+
+        // fit a plane to the points contained in the bounding box
         Vec4f fCell;
-        // dx=cellSize.x/2.0f, dy=cellSize.y/2.0f, dz=cellSize.z/2.0f;
-        // dMax = dx; if(dy>dMax) dMax=dy; if(dz>dMax) dMax=dz;
-        // if(cube      ) { dx = dy = dz = dMax; }
-        // if(scale>0.0f) { dx *= scale; dy *= scale; dz *= scale; }
-        // Vec3f centerCell = Vec3f(minCell.x + cellSize.x / 2.0f,
-        //   minCell.y + cellSize.y / 2.0f,
-        //   minCell.z + cellSize.z / 2.0f);
-        Vec3f centerCell = Vec3f((minCell.x + maxCell.x) / 2.0f,
-          (minCell.y + maxCell.y) / 2.0f,
-          (minCell.z + maxCell.z) / 2.0f);
+        meanFit(coordCell, normalCell, minCell, maxCell, fCell);
 
-        _fitPlane(centerCell, cellSize, 1, false, fCell, coordPoints, normalPoints);
 
-        f.push_back(fCell.x);
-        f.push_back(fCell.y);
-        f.push_back(fCell.z);
-        f.push_back(fCell.w);
+        // Now, for the current linear function, create the isosurface in the current cell
+        float x, y, z;
+        Vec3f v[8]; // bbox corner coordinates
+        for (int i = 0;i < 8;i++) {
+          v[i].z = (((i >> 0) & 0x1) == 0) ? minCell.z : maxCell.z;
+          v[i].y = (((i >> 1) & 0x1) == 0) ? minCell.y : maxCell.y;
+          v[i].x = (((i >> 2) & 0x1) == 0) ? minCell.x : maxCell.x;
+        }
+
+
+
+        // evaluate the linear function at bounding box corners
+        float F[8]; // function values at bbox corners
+        bool  b[8]; // function is positive or negative ?
+        for (int i = 0;i < 8;i++) {
+          x = v[i].x; y = v[i].y; z = v[i].z;
+          b[i] = (F[i] = x * fCell.x + y * fCell.y + z * fCell.z + fCell.w) < 0.0f;
+        }
+
+        // cout << "//                6 ----- 7 = (x1,y1,z1)" << endl;
+        // cout << "//               /|      /|             " << endl;
+        // cout << "//              4 ----- 5 |             " << endl;
+        // cout << "//              | |     | |             " << endl;
+        // cout << "//              | 2 ----| 3             " << endl;
+        // cout << "//              |/      |/              " << endl;
+        // cout << "// (x0,y0,z0) = 0 ----- 1               " << endl;
+
+        //////////////////////////////////////////////////////////////////////
+        //
+        //    vertices      //    edges                 //    faces
+        //      6-----7     //        [6]---11---[7]    //        1
+        //     /|    /|     //        /|         /|     //        | 3
+        //    4-----5 |     //       6 2        7 3     //        |/
+        //    | 2---|-3     //      /  |       /  |     //    4---+---5
+        //    |/    |/      //    [4]---10---[5]  |     //       /|
+        //    0-----1       //     |   |      |   |     //      2 |
+        //                  //     |  [2]--9--|--[3]    //        0
+        //                  //     0  /       1  /      //
+        //                  //     | 4        | 5       //
+        //                  //     |/         |/        //
+        //                  //    [0]---8----[1]        //
+        //
+
+        const int (*edge)[2] = IsoSurf::getEdgeTable();
+
+        // compute the isovertex coordinates
+        float tj, tk;
+        int   iE[12], iV, i, j, k;
+        for (i = 0;i < 12;i++) {
+          iV = -1;
+          j = edge[i][0];
+          k = edge[i][1];
+          if (b[j] != b[k]) {
+            // create new vertex index
+            iV = (int)((coordIfs.size() / 3));
+            // isovertex coordinates
+            tk = F[j] / (F[j] - F[k]);
+            tj = F[k] / (F[k] - F[j]);
+            x = tj * v[j].x + tk * v[k].x;
+            y = tj * v[j].y + tk * v[k].y;
+            z = tj * v[j].z + tk * v[k].z;
+            coordIfs.push_back(x);
+            coordIfs.push_back(y);
+            coordIfs.push_back(z);
+          }
+          iE[i] = iV;
+        }
+
+        // create isosurface faces
+        vector<int>& coordIndex = planes->getCoordIndex(); // coordIndex.size()==0
+        /* int nFaces = */ IsoSurf::makeCellFaces(b, iE, coordIndex);
+        // cout << "  nFaces = " << nFaces << endl;
+
       }
     }
   }
 
+  // Recompute normals
+  planes->setNormalPerVertex(false);
+  _computeNormalPerFace(*planes);
 
 
   _deletePartition();
 }
+
 
 //////////////////////////////////////////////////////////////////////
 void SceneGraphProcessor::fitContinuous
@@ -1433,76 +1611,120 @@ void SceneGraphProcessor::fitContinuous
   const int depth, const float scale, const bool cube,
   vector<float>& fGrid) {
 
-  IndexedFaceSet* plane = _getNamedShapeIFS("PLANE", true);
-  plane->clear();
+  IndexedFaceSet* planes = _getNamedShapeIFS("SURFACE", true);
+  planes->clear();
 
+  // find the input point set in the scene graph
   IndexedFaceSet* points = _getNamedShapeIFS("POINTS", false);
-  vector<float>& coord = points->getCoord();
-  vector<float>& normal = points->getNormal();
+  if (points == (IndexedFaceSet*)0) return;
+  if (points->getNormalBinding() != IndexedFaceSet::PB_PER_VERTEX) return;
+  vector<float>& coordPoints = points->getCoord();
+  const vector<float>& normalPoints = points->getNormal();
+  // int nPoints = (int)(coordPoints.size()/3);
+  // cout << "  nPoints = " << nPoints << endl;
 
-  int N = 1 << depth; // N = 2^depth
-  float* FGrid = new float[(N + 1) * (N + 1) * (N + 1) * 8];
-  bool* bGrid = new bool[(N + 1) * (N + 1) * (N + 1) * 8];
+  // compute the coordinates of the bounding box corners to create the partition
+  float dx = size.x / 2.0f, dy = size.y / 2.0f, dz = size.z / 2.0f;
+  float dMax = dx; if (dy > dMax) dMax = dy; if (dz > dMax) dMax = dz;
+  if (cube) { dx = dy = dz = dMax; }
+  if (scale > 0.0f) { dx *= scale; dy *= scale; dz *= scale; }
+  float x0 = center.x - dx; float y0 = center.y - dy; float z0 = center.z - dz;
+  float x1 = center.x + dx; float y1 = center.y + dy; float z1 = center.z + dz;
+  Vec3f min(x0, y0, z0);
+  Vec3f max(x1, y1, z1);
+
+  _createPartition(min, max, depth, coordPoints);
+
+  int N = _nGrid; // N = 2^depth
+  int nGridPoints = (N + 1) * (N + 1) * (N + 1);
   int nCells = N * N * N;
-  vector<int>   cornerToVertex(nCells * 8);
 
 
-  vector<float> coordPoints;
-  vector<float> normalPoints;
-  Vec3f minBordersBox = Vec3f(center.x - size.x / 2.0f, center.y - size.y / 2.0f, center.z - size.z / 2.0f);
-  Vec3f maxBordersBox = Vec3f(center.x + size.x / 2.0f, center.y + size.y / 2.0f, center.z + size.z / 2.0f);
-  Vec3f cellSize = Vec3f(size.x / N, size.y / N, size.z / N);
 
-  _createPartition(minBordersBox, maxBordersBox, depth, coord);
+  vector<float> coordCell;
+  vector<float> normalCell;
+
+  // This vector maps each cell corner to the global grid vertex
+  vector<int> cornerToVertex(8 * nCells, -1);
+  // FGrid holds the corresponding function values at grid corners
+  vector<float> FGrid(8 * nCells);
+
+  Vec3f minCell, maxCell;
+
+  vector<float> fCells(4 * nCells, 0.0f);
 
   for (int ix = 0; ix < N; ix++) {
     for (int iy = 0; iy < N; iy++) {
       for (int iz = 0; iz < N; iz++) {
-        Vec3f minCell = Vec3f(minBordersBox.x + ix * cellSize.x,
-          minBordersBox.y + iy * cellSize.y,
-          minBordersBox.z + iz * cellSize.z);
-        Vec3f maxCell = Vec3f(minBordersBox.x + (ix + 1) * cellSize.x,
-          minBordersBox.y + (iy + 1) * cellSize.y,
-          minBordersBox.z + (iz + 1) * cellSize.z);
+
+        // compute the bounding box of the current cell
+        minCell.x = ((N - ix) * min.x + (ix)*max.x) / (N);
+        maxCell.x = ((N - ix - 1) * min.x + (ix + 1) * max.x) / (N);
+        minCell.y = ((N - iy) * min.y + (iy)*max.y) / (N);
+        maxCell.y = ((N - iy - 1) * min.y + (iy + 1) * max.y) / (N);
+        minCell.z = ((N - iz) * min.z + (iz)*max.z) / (N);
+        maxCell.z = ((N - iz - 1) * min.z + (iz + 1) * max.z) / (N);
 
         int iCell = ix + N * (iy + N * iz);
-        // A. Construir el vector de mapeo (corner -> vertex)
-        for (int k = 0; k < 8; k++) {
-          int dx = (k >> 2) & 1;
-          int dy = (k >> 1) & 1;
-          int dz = (k >> 0) & 1;
-          // Índice único para el vértice en la grilla global (N+1)^3
-          int gIndex = (ix + dx) + (N + 1) * ((iy + dy) + (N + 1) * (iz + dz));
-          cornerToVertex[iCell * 8 + k] = gIndex;
-        }
         int iPoint = _first[iCell];
+        // skip empty cells
+        if (iPoint == -1)
+          continue;
 
-        coordPoints.clear();
-        normalPoints.clear();
-        for (int iP = iPoint; iP >= 0; iP = _next[iP]) {
-          float x = coord[3 * iP];
-          float y = coord[3 * iP + 1];
-          float z = coord[3 * iP + 2];
-          coordPoints.push_back(x);
-          coordPoints.push_back(y);
-          coordPoints.push_back(z);
+        coordCell.clear();
+        normalCell.clear();
+        // Obtain the points contained in the current cell
+        for (int iP = iPoint; iP != -1; iP = _next[iP]) {
+          float x = coordPoints[3 * iP];
+          float y = coordPoints[3 * iP + 1];
+          float z = coordPoints[3 * iP + 2];
+          coordCell.push_back(x);
+          coordCell.push_back(y);
+          coordCell.push_back(z);
 
-          if (normal.size() > 0) {
-            x = normal[3 * iP];
-            y = normal[3 * iP + 1];
-            z = normal[3 * iP + 2];
+          if (normalPoints.size() > 0) {
+            x = normalPoints[3 * iP];
+            y = normalPoints[3 * iP + 1];
+            z = normalPoints[3 * iP + 2];
 
-            normalPoints.push_back(x);
-            normalPoints.push_back(y);
-            normalPoints.push_back(z);
+            normalCell.push_back(x);
+            normalCell.push_back(y);
+            normalCell.push_back(z);
           }
         }
-        Vec4f fCell;
-        Vec3f centerCell = Vec3f(minCell.x + cellSize.x / 2.0f,
-          minCell.y + cellSize.y / 2.0f,
-          minCell.z + cellSize.z / 2.0f);
-        _fitPlane(centerCell, cellSize, scale, cube, fCell, coordPoints, normalPoints, &FGrid[iCell * 8], &bGrid[iCell * 8], false);
 
+
+        // fit a plane to the points contained in the bounding box
+        Vec4f fCell;
+        meanFit(coordCell, normalCell, minCell, maxCell, fCell);
+
+        float x, y, z;
+        Vec3f v[8]; // bbox corner coordinates
+        for (int i = 0;i < 8;i++) {
+          v[i].z = (((i >> 0) & 0x1) == 0) ? minCell.z : maxCell.z;
+          v[i].y = (((i >> 1) & 0x1) == 0) ? minCell.y : maxCell.y;
+          v[i].x = (((i >> 2) & 0x1) == 0) ? minCell.x : maxCell.x;
+          // map cell corner to global grid vertex
+          int ixV = ix + ((i >> 2) & 0x1);;
+          int iyV = iy + ((i >> 1) & 0x1);;
+          int izV = iz + ((i >> 0) & 0x1);
+          int iVGlobal = ixV + (N + 1) * (iyV + (N + 1) * izV);
+          cornerToVertex[iCell * 8 + i] = iVGlobal;
+        }
+
+
+
+        // evaluate the linear function at bounding box corners
+        float F[8]; // function values at bbox corners
+        bool  b[8]; // function is positive or negative ?
+        for (int i = 0;i < 8;i++) {
+          x = v[i].x; y = v[i].y; z = v[i].z;
+          b[i] = (F[i] = x * fCell.x + y * fCell.y + z * fCell.z + fCell.w) < 0.0f;
+          // store the function value at the grid corner
+          FGrid[iCell * 8 + i] = F[i];
+        }
+
+        // Finally, save the linear function coefficients
         fGrid.push_back(fCell.x);
         fGrid.push_back(fCell.y);
         fGrid.push_back(fCell.z);
@@ -1511,42 +1733,27 @@ void SceneGraphProcessor::fitContinuous
     }
   }
 
-  //////////////////////////////////////////////////////////////////////
-  //
-  //    vertices      //    edges                 //    faces
-  //      6-----7     //        [6]---11---[7]    //        1
-  //     /|    /|     //        /|         /|     //        | 3
-  //    4-----5 |     //       6 2        7 3     //        |/
-  //    | 2---|-3     //      /  |       /  |     //    4---+---5
-  //    |/    |/      //    [4]---10---[5]  |     //       /|
-  //    0-----1       //     |   |      |   |     //      2 |
-  //                  //     |  [2]--9--|--[3]    //        0
-  //                  //     0  /       1  /      //
-  //                  //     | 4        | 5       //
-  //                  //     |/         |/        //
-  //                  //    [0]---8----[1]        //
-
-  plane->clear();
 
 
 
-  // finally, create the isosurface using the FMean values
+
   const int (*edge)[2] = IsoSurf::getEdgeTable();
-  vector<float>& coordIfs = plane->getCoord();
-  vector<int>& coordIndex = plane->getCoordIndex();
+  vector<float>& coordIfs = planes->getCoord();
+  vector<int>& coordIndex = planes->getCoordIndex();
 
   int nGridVerts = (N + 1) * (N + 1) * (N + 1);
   vector<float> globalSum(nGridVerts, 0.0f);
   vector<int>   globalCount(nGridVerts, 0);
 
+  // Accumulate F values at grid vertices
   for (int ix = 0; ix < N; ix++) {
     for (int iy = 0; iy < N; iy++) {
       for (int iz = 0; iz < N; iz++) {
 
         int iCell = ix + N * (iy + N * iz);
 
+        // skip empty cells
         if (_first[iCell] == -1)
-          // Then, the cell is empty
           continue;
 
         for (int k = 0; k < 8; k++) {
@@ -1569,59 +1776,43 @@ void SceneGraphProcessor::fitContinuous
   }
 
 
-  Vec3f v[8];
 
 
+  // Finally, create the isosurface in each cell using the mean F values
   for (int ix = 0; ix < N; ix++) {
     for (int iy = 0; iy < N; iy++) {
       for (int iz = 0; iz < N; iz++) {
 
         int iCell = ix + N * (iy + N * iz);
-
+        // skip empty cells
         if (_first[iCell] == -1)
-          // Then, the cell is empty
           continue;
-        
 
-        Vec3f minCell = Vec3f(minBordersBox.x + ix * cellSize.x,
-          minBordersBox.y + iy * cellSize.y,
-          minBordersBox.z + iz * cellSize.z);
-        Vec3f maxCell = Vec3f(minBordersBox.x + (ix + 1) * cellSize.x,
-          minBordersBox.y + (iy + 1) * cellSize.y,
-          minBordersBox.z + (iz + 1) * cellSize.z);
-        Vec3f centerCell = Vec3f(minCell.x + cellSize.x / 2.0f,
-          minCell.y + cellSize.y / 2.0f,
-          minCell.z + cellSize.z / 2.0f);
+        // Recompute the bounding box of the current cell
+        minCell.x = ((N - ix) * min.x + (ix)*max.x) / (N);
+        maxCell.x = ((N - ix - 1) * min.x + (ix + 1) * max.x) / (N);
+        minCell.y = ((N - iy) * min.y + (iy)*max.y) / (N);
+        maxCell.y = ((N - iy - 1) * min.y + (iy + 1) * max.y) / (N);
+        minCell.z = ((N - iz) * min.z + (iz)*max.z) / (N);
+        maxCell.z = ((N - iz - 1) * min.z + (iz + 1) * max.z) / (N);
 
-          float dx = cellSize.x / 2.0f, dy = cellSize.y / 2.0f, dz = cellSize.z / 2.0f;
-          float dMax = dx; if (dy > dMax) dMax = dy; if (dz > dMax) dMax = dz;
-          if (cube) { dx = dy = dz = dMax; }
-          if (scale > 0.0f) { dx *= scale; dy *= scale; dz *= scale; }
-          float x0 =  centerCell.x - dx; float y0 = centerCell.y - dy; float z0 = centerCell.z - dz;
-          float x1 = centerCell.x + dx; float y1 = centerCell.y + dy; float z1 = centerCell.z + dz;
-          Vec3f min(x0, y0, z0);
-          Vec3f max(x1, y1, z1);
-          float x, y, z;
-          Vec3f v[8]; // bbox corner coordinates
-          for (int i = 0;i < 8;i++) {
-            v[i].z = (((i >> 0) & 0x1) == 0) ? z0 : z1;
-            v[i].y = (((i >> 1) & 0x1) == 0) ? y0 : y1;
-            v[i].x = (((i >> 2) & 0x1) == 0) ? x0 : x1;
-          }
-        
+        float x, y, z;
+        Vec3f v[8]; // bbox corner coordinates
+        for (int i = 0;i < 8;i++) {
+          v[i].z = (((i >> 0) & 0x1) == 0) ? minCell.z : maxCell.z;
+          v[i].y = (((i >> 1) & 0x1) == 0) ? minCell.y : maxCell.y;
+          v[i].x = (((i >> 2) & 0x1) == 0) ? minCell.x : maxCell.x;
+        }
+
 
         float F[8];
         bool  b[8];
+        // Retrieve the mean F values at cell corners
         for (int k = 0; k < 8; k++) {
           int iVCell = cornerToVertex[iCell * 8 + k];
           F[k] = globalSum[iVCell];
           b[k] = (globalSum[iVCell] < 0.0f);
         }
-
-        // for (int i = 0;i < 8;i++) {
-        //   x = v[i].x; y = v[i].y; z = v[i].z;
-        //   b[i] = (F[i] = x * f.x + y * f.y + z * f.z + f.w) < 0.0f;
-        // }
 
         // compute the isovertex coordinates
         float tj, tk;
@@ -1651,50 +1842,19 @@ void SceneGraphProcessor::fitContinuous
         IsoSurf::makeCellFaces(b, iE, coordIndex);
         int nFaces = ((int)coordIndex.size() - nIndexBefore) / 4;
 
-        // save plane normal vector as face normal
-        if (nFaces > 0) {
-          plane->setNormalPerVertex(false);
-          vector<float>& normal = plane->getNormal();
-          // for (int k = 0; k < nFaces; k++) {
-          //     normal.push_back(f.x);
-          //     normal.push_back(f.y);
-          //     normal.push_back(f.z);
-          // }
-        }
+        
       }
     }
   }
 
-  // 5. Actualizar el vector de salida y limpiar
-  // fGrid = FMean;
 
-  // 6. Calcular normales suaves (por vértice) ya que la superficie es continua
-  plane->setNormalPerVertex(true);
-  _computeNormalPerVertex(*plane);
+  
+  // Recompute normals
+  planes->setNormalPerVertex(false);
+  _computeNormalPerFace(*planes);
 
   _deletePartition();
-  free(FGrid);
-  free(bGrid);
 
-  // TODO
-  // More details in the file DG2025-FCEN-TP5-Notes.pdf
-
-  // 1) same as fitMultiplePlanes, but rather than computing the
-  // isosurfaces within the hexahedral cells right away, first save
-  // the linear function values at the corners of the cells
-
-  // 2) note that empty cells do not have function values associated
-  // with
-
-  // 3) for each grid vertex of an occupied incident cell, compute the
-  // average of the values saved on the incident cell corners; and
-  // then replace the incident cell corner values by the average.
-
-  // 4) now compute the isosurface polygon with the cells, as in the
-  // fitMultiplePlanes method, but using the new values instead
-
-  // 5) fill the SURFACE IndexedFaceSet exactly as in the
-  // fitMultiplePlanes method
 
 
 }
@@ -1717,147 +1877,233 @@ void SceneGraphProcessor::fitWatertight
   // More details in the file DG2025-FCEN-TP5-Notes.pdf
 
   // 1) get the scene graph node named "POINTS"
-  // IndexedFaceSet* points = ...
+  IndexedFaceSet* points = _getNamedShapeIFS("POINTS", false);
 
   // 2) if there is no such node return without doing anything
+  if (points == (IndexedFaceSet*)0) return;
 
   // 3) if the node is found but it is empty, or it does not have
   // normals per vertex, also return without doing anything
+  if (points->getNormalBinding() != IndexedFaceSet::PB_PER_VERTEX) return;
 
   // 4) get the coord and normal vectors from the points node 
-  // vector<float>& coordPoints = ...
-  // vector<float>& normalPoints = ...
+  vector<float>& coordPoints = points->getCoord();
+  const vector<float>& normalPoints = points->getNormal();
 
   // 5) from the center, size, and scale arguments, compute the min &
   // max corners of the bounding box
   // Vec3f min;
   // Vec3f max;
+  float dx = size.x / 2.0f, dy = size.y / 2.0f, dz = size.z / 2.0f;
+  float dMax = dx; if (dy > dMax) dMax = dy; if (dz > dMax) dMax = dz;
+  if (isCube) { dx = dy = dz = dMax; }
+  if (scale > 0.0f) { dx *= scale; dy *= scale; dz *= scale; }
+  float x0 = center.x - dx; float y0 = center.y - dy; float z0 = center.z - dz;
+  float x1 = center.x + dx; float y1 = center.y + dy; float z1 = center.z + dz;
+  Vec3f min(x0, y0, z0);
+  Vec3f max(x1, y1, z1);
 
   // 6) create a partition of the points as an array of linked lists
-  // _createPartition(min,max,depth,coordPoints);
+  _createPartition(min, max, depth, coordPoints);
 
   // 7) determine the total number of grid vertices as a function of
   // _nGrid 
-  // int nGridVertices = ...
+  int N = _nGrid; // N = 2^depth
+  int nGridVertices = (N + 1) * (N + 1) * (N + 1);
 
   // 7) initialize fGrid with zeros
   // fGrid.clear();
   // fGrid.insert(fGrid.end(),nGridVertices,0.0f);
+  fGrid.clear();
+  fGrid.resize(nGridVertices, 0.0f);
 
   // 8) create a temporary array of the same size to accumulate weights
   // vector<float> wGrid;
   // wGrid.insert(wGrid.end(),nGridVertices,0.0f);
+  vector<float> wGrid(nGridVertices, 0.0f);
 
   // 9) allocate arrays to do the local linear fit
   // Vec4f fCell;
   // Vec3f minCell,maxCell;
   // vector<float> coordCell;
   // vector<float> normalCell;
+  Vec4f fCell;
+  Vec3f minCell, maxCell;
+  vector<float> coordCell;
+  vector<float> normalCell;
 
   // 10) accumulate grid vertex funtion values
-  // int N = _nGrid;
-  // int nonEmptyCells = 0;
-  // for(iCell=iz=0;iz<N;iz++) {
-  //   minCell.z = (((float)(N-iz  ))*z0+((float)(iz  ))*z1)/((float)N);
-  //   maxCell.z = (((float)(N-iz-1))*z0+((float)(iz+1))*z1)/((float)N);
-  //   for(iy=0;iy<N;iy++) {
-  //     minCell.y = (((float)(N-iy  ))*y0+((float)(iy  ))*y1)/((float)N);
-  //     maxCell.y = (((float)(N-iy-1))*y0+((float)(iy+1))*y1)/((float)N);
-  //     for(ix=0;ix<N;ix++,iCell++) {
-  //       minCell.x = (((float)(N-ix  ))*x0+((float)(ix  ))*x1)/((float)N);
-  //       maxCell.x = (((float)(N-ix-1))*x0+((float)(ix+1))*x1)/((float)N);
-  // 
-  //       if((iPoint=_first[iCell])>=0) { // cell iCell is not empty
-  //         nonEmptyCells++;
-  //
-  //         // 11) copy coord and normal values of points in cell onto cell arrays
-  //         coordCell.clear();
-  //         normalCell.clear();
-  //         nCell.x=nCell.y=nCell.z;
-  //         for(nPoints=0;iPoint>=0;iPoint=_next[iPoint]) {
-  //           // ...
-  //           // count the number of points in the cell here
-  //         }
-  //
-  //        // 12) fit a linear function to the points contained in the
-  //        // cell using the meanFit() method
-  //
-  //        // 13) evaluate the local linear function at each of the
-  //        // cell's eight vertices, accumulate the values in the
-  //        // corresponding entries of the fGrid vector, and increment
-  //        // the corresponding entry of the weights vector wGrid by 1
-  //
-  //       }
-  //     }
-  //   }
-  // }
+  N = _nGrid;
+  Vec3f nCell;
+  int nonEmptyCells = 0;
+
+  for (int ix = 0; ix < N; ix++) {
+    for (int iy = 0; iy < N; iy++) {
+      for (int iz = 0; iz < N; iz++) {
+        // compute the bounding box of the current cell
+        minCell.x = ((N - ix) * min.x + (ix)*max.x) / (N);
+        maxCell.x = ((N - ix - 1) * min.x + (ix + 1) * max.x) / (N);
+        minCell.y = ((N - iy) * min.y + (iy)*max.y) / (N);
+        maxCell.y = ((N - iy - 1) * min.y + (iy + 1) * max.y) / (N);
+        minCell.z = ((N - iz) * min.z + (iz)*max.z) / (N);
+        maxCell.z = ((N - iz - 1) * min.z + (iz + 1) * max.z) / (N);
+
+        int iCell = ix + N * (iy + N * iz);
+        int iPoint = _first[iCell];
+        // skip empty cells
+        if (iPoint == -1)
+          continue;
+
+        // 11) copy coord and normal values of points in cell onto cell arrays
+        coordCell.clear();
+        normalCell.clear();
+        nCell.x = nCell.y = nCell.z = N;
+
+        for (int iP = iPoint; iP != -1; iP = _next[iP]) {
+          float x = coordPoints[3 * iP];
+          float y = coordPoints[3 * iP + 1];
+          float z = coordPoints[3 * iP + 2];
+          coordCell.push_back(x);
+          coordCell.push_back(y);
+          coordCell.push_back(z);
+
+          if (normalPoints.size() > 0) {
+            x = normalPoints[3 * iP];
+            y = normalPoints[3 * iP + 1];
+            z = normalPoints[3 * iP + 2];
+
+            normalCell.push_back(x);
+            normalCell.push_back(y);
+            normalCell.push_back(z);
+          }
+          //nPoints++;
+        }
+
+        // 12) fit a linear function to the points contained in the
+        // cell using the meanFit() method
+        meanFit(coordCell, normalCell, minCell, maxCell, fCell);
+
+
+        // 13) evaluate the local linear function at each of the
+        // cell's eight vertices, accumulate the values in the
+        // corresponding entries of the fGrid vector, and increment
+        // the corresponding entry of the weights vector wGrid by 1
+        for (int k = 0;k < 8;k++) {
+          int ixV = ix + ((k >> 2) & 0x1);;
+          int iyV = iy + ((k >> 1) & 0x1);;
+          int izV = iz + ((k >> 0) & 0x1);
+          int iV = ixV + (N + 1) * (iyV + (N + 1) * izV);
+          float x = ((k & 0x4) == 0) ? minCell.x : maxCell.x;
+          float y = ((k & 0x2) == 0) ? minCell.y : maxCell.y;
+          float z = ((k & 0x1) == 0) ? minCell.z : maxCell.z;
+          float fValue = x * fCell.x + y * fCell.y + z * fCell.z + fCell.w;
+          fGrid[iV] += fValue;
+          wGrid[iV] += 1.0f;
+
+
+        }
+      }
+    }
+  }
+
 
   // 14) arrays needded to implement the wavefront propagation algorithm
-  // vector<int> src;
-  // vector<int> dst;
+  vector<int> src;
+  vector<int> dst;
 
-  // 15) normalize the fGrid values 
-  // for(iV=0;iV<nGridVertices;iV++)
-  //   if(wGrid[iV]>0.0f) { // only for vertices of occupied cells !
-  //     fGrid[iV] /= wGrid[iV];
-  //     // since the wGrid[iV] value is no longer needed, we will use it
-  //     // to indicate which vertices have defined function values
-  //     // (WGrid[iV]==-2), and which ones have undefined values
-  //     // (wGrid[iV]==0)
-  //     wGrid[iV] = -2.0f;
-  //     // save the grid vertex indices of occupied cells in a list 
-  //     src.push_back(iV);
-  //   }
+  // 15) normalize the fGrid values
+  for (int iV = 0;iV < nGridVertices;iV++)
+    if (wGrid[iV] > 0.0f) { // only for vertices of occupied cells !
+      fGrid[iV] /= wGrid[iV];
+      // since the wGrid[iV] value is no longer needed, we will use it
+      // to indicate which vertices have defined function values
+      // (WGrid[iV]==-2), and which ones have undefined values
+      // (wGrid[iV]==0)
+      wGrid[iV] = -2.0f;
+      // save the grid vertex indices of occupied cells in a list 
+      src.push_back(iV);
+    }
 
   // 16) extend vertex function values to all vertices by wavefront propagation
-  // int iV0,iV1;
-  // float fV0;
-  // while(src.size()>0) {
-  // 
-  //   // for each vertex in the wavefront
-  //   while(src.size()>0) {
-  //     iV0 = iV = src.back(); src.pop_back(); // wGrid[iV0]<0
-  //     // 17) compute the x,y,z integer coordinates of the vertex
-  //     // inverting the formula
-  //     // iV = ix+(N+1)*(iy+(N+1)*iz);
-  // 
-  //     // 18) get the vertex function falue from fGrid
-  //     
-  //     // 19) for each of the 6 neighbors jV of vertex iV in the grid,
-  //     // if vertex jV is inside the grid, and it does not have a
-  //     // defined function value yet (i.e. wGrid[jV]>=0), then
-  //     // 19.1) add the fGrid iV function value to the fGrid jV function
-  //     // value
-  //     // 19.2) increment the wGrid jV weight value by one
-  //     // 19.3) if this is the first visit to this grid vertex (i.e. if
-  //     // the wGrid jV value is equal to zero), save the jV index in
-  //     // the output wavefront list dst
-  // 
-  //   }
-  //   // 20) note that at this point the src list is empty, and the dst
-  //   // list in general is not empty
-  // 
-  //   // 20) normalize new function values for the grid vertices in the
-  //   // new wavefront, and create new wavefront
-  //   while(dst.size()>0) {
-  //     iV1 = dst.back(); dst.pop_back();
-  //     // if(wGrid[iV1]>0.0f) {
-  //     fGrid[iV1] /= wGrid[iV1];
-  //     // we use -2 to indicate the vertices of the occupied cells, and
-  //     // -1 the vertices of cells where the function has been defined
-  //     // by the wavefront propagation algorithm
-  //     wGrid[iV1] = -1.0f;
-  //     src.push_back(iV1);
-  //     // }
-  //   } // while(dst.size()>0)
-  // 
-  // } // while(source.size()>0)
-  // 
-  // // create output surface
-  // computeIsosurface(center,size,depth,scale,isCube,fGrid);
-  // 
-  // // we no longer need the point partition
-  // _deletePartition();
+  int iV0, iV1, iV, ix, iy, iz;
+  float fV0;
+
+  // for each vertex in the wavefront
+  while (src.size() > 0) {
+    iV0 = iV = src.back(); src.pop_back(); // wGrid[iV0]<0
+    // 17) compute the x,y,z integer coordinates of the vertex
+    // inverting the formula
+    // iV = ix+(N+1)*(iy+(N+1)*iz);
+    iz = iV0 / ((N + 1) * (N + 1));
+    iy = (iV0 - iz * (N + 1) * (N + 1)) / (N + 1);
+    ix = iV0 - iz * (N + 1) * (N + 1) - iy * (N + 1);
+
+    // 18) get the vertex function falue from fGrid
+    fV0 = fGrid[iV0];
+
+    // 19) for each of the 6 neighbors jV of vertex iV in the grid,
+    // if vertex jV is inside the grid, and it does not have a
+    // defined function value yet (i.e. wGrid[jV]>=0), then
+
+
+    for (int k = 0;k < 6;k++) {
+      // neighboors in x
+      int ixV = ix + ((k == 0) ? -1 : (k == 1) ? 1 : 0);
+      // neighboors in y
+      int iyV = iy + ((k == 2) ? -1 : (k == 3) ? 1 : 0);
+      // neighboors in z
+      int izV = iz + ((k == 4) ? -1 : (k == 5) ? 1 : 0);
+
+      if (ixV >= 0 && ixV <= N && iyV >= 0 && iyV <= N && izV >= 0 && izV <= N) {
+        int jV = ixV + (N + 1) * (iyV + (N + 1) * izV);
+
+
+        // The vertex doesn't have a defined function value yet
+        if (abs(wGrid[jV]) < 1e-6) {
+          // 19.1) add the fGrid iV function value to the fGrid jV function
+          // value
+          fGrid[jV] += fV0;
+          // 19.2) increment the wGrid jV weight value by one
+          wGrid[jV] += 1.0f;
+          // 19.3) if this is the first visit to this grid vertex (i.e. if
+          // the wGrid jV value is equal to zero), save the jV index in
+          // the output wavefront list dst
+          if (abs(wGrid[jV] - 1.0f) < 1e-6)
+            dst.push_back(jV);
+        }
+      }
+
+    }
+    // 20) note that at this point the src list is empty, and the dst
+    // list in general is not empty
+
+    // 20) normalize new function values for the grid vertices in the
+    // new wavefront, and create new wavefront
+    while (dst.size() > 0) {
+      iV1 = dst.back(); dst.pop_back();
+      // if(wGrid[iV1]>0.0f) {
+      fGrid[iV1] /= wGrid[iV1];
+      // we use -2 to indicate the vertices of the occupied cells, and
+      // -1 the vertices of cells where the function has been defined
+      // by the wavefront propagation algorithm
+      wGrid[iV1] = -1.0f;
+      src.push_back(iV1);
+      // }
+    } // while(dst.size()>0)
+
+  } // while(source.size()>0)
+
+  // create output surface
+  IndexedFaceSet* surface = _getNamedShapeIFS("SURFACE", true);
+  surface->clear();
+  IsoSurf::computeIsosurface(center, size, depth, scale, isCube, fGrid, *surface);
+
+  // Recompute normals
+  surface->setNormalPerVertex(false);
+  _computeNormalPerFace(*surface);
+
+  // we no longer need the point partition
+  _deletePartition();
 
   std::cerr << "}" << endl;
 }

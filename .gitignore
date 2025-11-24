@@ -4,3 +4,7 @@ build
 build-*
 *.pro.user
 *~
+*.pro
+*.pri
+data-opts/
+.vscode/

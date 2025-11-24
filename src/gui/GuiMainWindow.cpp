@@ -156,6 +156,8 @@ GuiMainWindow::GuiMainWindow():
   _toolsWidth(300)
 {
 
+  setlocale(LC_ALL, "C");
+
   setWindowIcon(QIcon("qt.icns"));
   setWindowTitle(QString("DGP2025-A5 | Student : %1").arg(STUDENT_NAME));
 

@@ -169,10 +169,43 @@ float NchProcessor::nchEvaluate
   // Hint: use the pseudo-code from the lecture slides
 
   // initialize fx to the most negative number
+  float p0i,p1i,p2i,n0i,n1i,n2i,rho_i,d0,d1,d2,f_x;
+  float a,b,c;
+
   float fx = -std::numeric_limits<float>::max();
   for(int iPoint=0;iPoint<nPoints;iPoint++) {
 
-    // TODO ...
+    // Get point p_i coordinates
+    float px = coord[3*iPoint  ];
+    float py = coord[3*iPoint+1];
+    float pz = coord[3*iPoint+2];
+
+    // Get normal n_i components
+    float nx = normal[3*iPoint  ];
+    float ny = normal[3*iPoint+1];
+    float nz = normal[3*iPoint+2];
+
+    // Get rho_i
+    float rho = nchRhos[iPoint];
+
+    // Vector d = x - p_i
+    float dx = x0 - px;
+    float dy = x1 - py;
+    float dz = x2 - pz;
+
+    // Compute n_i^t * (x - p_i)
+    float a = nx*dx + ny*dy + nz*dz;
+
+    // Compute ||x - p_i||^2
+    float b = dx*dx + dy*dy + dz*dz;
+
+    // f_i(x) = dot - rho * dist2
+    float fi = a - rho * b;
+
+    // Update maximum
+    if(fi > fx) {
+      fx = fi;
+    }
 
   }
   

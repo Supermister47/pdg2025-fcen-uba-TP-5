@@ -46,6 +46,7 @@
 #include "TokenizerFile.hpp"
 #include "LoaderStl.hpp"
 #include "StrException.hpp"
+#include <stdint.h>
 
 #include "wrl/Shape.hpp"
 #include "wrl/Appearance.hpp"

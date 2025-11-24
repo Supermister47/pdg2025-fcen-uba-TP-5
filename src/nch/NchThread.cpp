@@ -38,6 +38,7 @@
 //
 #include <iostream>
 #include "NchThread.hpp"
+#include "NchProcessor.hpp"
 #include <QMutex>
 
 int NchThread::_progressValue = 0;
@@ -110,24 +111,49 @@ void NchThread::_runEstimate() {
   // Hint: use the pseudo-code from the lecture slides
 
   int   i,j;
-  float p0i,p1i,p2i,n0i,n1i,n2i,p0j,p1j,p2j,d0,d1,d2,a,b,rho_i;
 
   // the partition of work into threads is based on point index
-  for(i=_id;i<nPoints;i+=_nThreads) {
+float pix,piy,piz,pjx,pjy,pjz,nix,niy,niz,d0,d1,d2,a,b,rho_i;
 
-    // get the (x,y,z) coordinates to the i-th point from the _coord array
+    for(i=0;i<nPoints;i++) {
 
-    // TODO
-    // - estimate the _rho[i] parameter
-    
-    rho_i = 0.0f;
-    for(j=0;j<nPoints;j++) {
-      if(j==i) continue;
+      // get the (x,y,z) coordinates to the i-th point from the _coord array
+      pix = _coord[3*i+0];
+      piy = _coord[3*i+1];
+      piz = _coord[3*i+2];
 
-      // TODO
-      // - update the _rho[i] parameter 
+      // Get the normal components
+      nix = _normal[3*i+0];
+      niy = _normal[3*i+1];
+      niz = _normal[3*i+2];
 
-    }
+      rho_i  = 0.0f;
+      for(j=0;j<nPoints;j++) {
+        if(j==i) continue;
+        // get the (x,y,z) coordinates to the j-th point from the _coord array
+        pjx = _coord[3*j+0];
+        pjy = _coord[3*j+1];
+        pjz = _coord[3*j+2];
+
+        // Compute a = n_i^t = (pj - pi)
+        a =  nix*(pjx - pix) +
+             niy*(pjy - piy) +
+             niz*(pjz - piz);
+
+        // Compute b = ||pj - pi||^2
+        d0 = pjx - pix;
+        d1 = pjy - piy;
+        d2 = pjz - piz;
+        b = d0*d0 + d1*d1 + d2*d2;
+
+        
+        if ((a - rho_i * b) > 0.0f) {
+            if (b > 0.0f) {
+                rho_i = a / b;
+            }
+        }
+        
+      }
     _rho[i] = rho_i;
 
     QMutex mutex;
@@ -180,12 +206,8 @@ void NchThread::_runEvaluateRegular() {
         // where
         // f_i(x) =n_i^t((x,y,z)^t-p_i)-_rho[i]*\|(x,y,z)^t-p_i\|^2
         
-        f_iV = -std::numeric_limits<float>::max();
-        for(i=0;i<nPoints;i++) {
+        f_iV = NchProcessor::nchEvaluate(_coord, _normal, _rho, x, y, z);
 
-          // TODO ...
-
-        }
         (*_fGrid)[iV] = f_iV;
 
         QMutex mutex;
@@ -202,7 +224,6 @@ void NchThread::_runEvaluateRegular() {
 
 void NchThread::_runEvaluateAdaptive() {
 
-  // TODO
   //
   // you can call the static function
   //
@@ -221,10 +242,13 @@ void NchThread::_runEvaluateAdaptive() {
   int i=0,iV=0,iVgrid=0;
   
   // the partition of work into threads is based on the iVgrid index
-  for(iVgrid=_id;iVgrid<=nGridVertices;iVgrid+=_nThreads) {
+  for(iVgrid=_id;iVgrid<nGridVertices;iVgrid+=_nThreads) {
     
     // get the (x,y,z) coordinates of the iVgrid vertex from the
     // (*_coordGridPtr) array
+    x = (*_coordGridPtr)[3*iVgrid+0];
+    y = (*_coordGridPtr)[3*iVgrid+1];
+    z = (*_coordGridPtr)[3*iVgrid+2];
 
     // inner loop same as in _runEvaluateRegular()
 
@@ -232,18 +256,14 @@ void NchThread::_runEvaluateAdaptive() {
     // where
     // f_i(x) =n_i^t((x,y,z)^t-p_i)-_rho[i]*\|(x,y,z)^t-p_i\|^2
         
-    f_iV = -std::numeric_limits<float>::max();
-    for(i=0;i<nPoints;i++) {
+    f_iV = NchProcessor::nchEvaluate(_coord, _normal, _rho, x, y, z);
 
-      // TODO ...
-
-    }
-    (*_fGrid)[iV] = f_iV;
+    (*_fGrid)[iVgrid] = f_iV;
 
     QMutex mutex;
     mutex.lock();
     if(++_progressValue%1000==0) {
-      emit progressSetValue(_progressValue);    
+      emit progressSetValue(_progressValue);
       // getApp()->processEvents();
     }
     mutex.unlock();
