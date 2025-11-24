@@ -98,10 +98,11 @@ public:
   (const Vec3f& center, const Vec3f& size, const float scale, const bool cube,
    Vec4f& f /* temporary output */ );
 
+
   void fitMultiplePlanes
   (const Vec3f& center, const Vec3f& size,
    const int depth, const float scale, const bool cube,
-   vector<float>& fVec );
+   vector<float>& fVec);
 
   void fitContinuous
   (const Vec3f& center, const Vec3f& size,
@@ -186,6 +187,13 @@ private:
   static bool _hasColorPerPolyline(IndexedLineSet& ils);
 
   IndexedFaceSet* _getNamedShapeIFS(const string& name, bool create);
+
+  void _fitPlane (const Vec3f& center, const Vec3f& size,
+    const float scale, const bool cube, Vec4f& f,
+    const vector<float>& coordPoints, const vector<float>& normalPoints,
+    float* FGrid=nullptr, bool* bGrid=nullptr,
+    bool showPlane=true);
+
 };
 
 #endif // SCENE_GRAPHPROCESSOR_HPP
